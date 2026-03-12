@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow — Локальный Трекер Задач</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0a0a0a, #1a1a2e);
+        }
+        .task-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .task-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+        }
+        .modal {
+            animation: modalPop 0.3s ease-out;
+        }
+        @keyframes modalPop {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .priority-low { background-color: #22c55e; }
+        .priority-med { background-color: #eab308; }
+        .priority-high { background-color: #ef4444; }
+    </style>
+</head>
+<body class="min-h-screen text-neutral-100">
+    <div class="max-w-3xl mx-auto p-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-list-check text-4xl text-sky-400"></i>
+                <div>
+                    <h1 class="text-4xl font-bold tracking-tight">TaskFlow</h1>
+                    <p class="text-sky-400 text-sm">Локальный трекер задач</p>
+                </div>
+            </div>
+            <div class="text-right">
+                <div id="stats" class="text-sm text-neutral-400"></div>
+            </div>
+        </div>
+
+        <!-- Add Task Form -->
+        <div class="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800 rounded-2xl p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> Новая задача
+            </h2>
+            <form id="taskForm" class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <input type="text" id="title" placeholder="Что нужно сделать?" 
+                       class="md:col-span-5 bg-zinc-800 border border-zinc-700 rounded-xl px-5 py-3 focus:outline-none focus:border-sky-400 transition-colors" required>
+                
+                <input type="text" id="description" placeholder="Описание (необязательно)"
+                       class="md:col-span-7 bg-zinc-800 border border-zinc-700 rounded-xl px-5 py-3 focus:outline-none focus:border-sky-400 transition-colors">
+
+                <div class="md:col-span-4">
+                    <select id="priority" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-5 py-3 focus:outline-none focus:border-sky-400">
+                        <option value="medium">Средний приоритет</option>
+                        <option value="low">Низкий</option>
+                        <option value="high">Высокий</option>
+                    </select>
+                </div>
+
+                <div class="md:col-span-4">
+                    <input type="date" id="deadline" 
+                           class="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-5 py-3 focus:outline-none focus:border-sky-400">
+                </div>
+
+                <button type="submit"
+                        class="md:col-span-4 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 font-semibold py-3 rounded-xl transition-all active:scale-95">
+                    <i class="fa-solid fa-plus mr-2"></i> Добавить
+                </button>
+            </form>
+        </div>
+
+        <!-- Search + Filters -->
+        <div class="flex flex-col md:flex-row gap-4 mb-6">
+            <div class="relative flex-1">
+                <i class="fa-solid fa-magnifying-glass absolute left-5 top-1/2 -translate-y-1/2 text-neutral-400"></i>
+                <input id="search" type="text" placeholder="Поиск задач..." 
+                       class="w-full bg-zinc-900 border border-zinc-700 pl-12 pr-5 py-3 rounded-2xl focus:outline-none focus:border-sky-400">
+            </div>
+            
+            <div class="flex gap-2">
+                <button onclick="setFilter('all')" id="filter-all" 
+                        class="filter-btn active px-6 py-3 rounded-2xl font-medium transition-all">Все</button>
+                <button onclick="setFilter('active')" id="filter-active"
+                        class="filter-btn px-6 py-3 rounded-2xl font-medium transition-all">Активные</button>
+                <button onclick="setFilter('completed')" id="filter-completed"
+                        class="filter-btn px-6 py-3 rounded-2xl font-medium transition-all">Завершённые</button>
+            </div>
+        </div>
+
+        <!-- Task List -->
+        <ul id="taskList" class="space-y-3"></ul>
+
+        <!-- Footer actions -->
+        <div class="mt-8 flex justify-between items-center text-sm text-neutral-400">
+            <button onclick="clearCompleted()" 
+                    class="flex items-center gap-2 hover:text-red-400 transition-colors">
+                <i class="fa-solid fa-trash"></i> Удалить завершённые
+            </button>
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-circle-info"></i>
+                <span id="count">0 задач</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50">
+        <div class="modal bg-zinc-900 border border-zinc-700 rounded-3xl w-full max-w-md mx-4 p-8">
+            <h3 class="text-2xl font-semibold mb-6">Редактировать задачу</h3>
+            <input id="edit-id" type="hidden">
+            <input id="edit-title" type="text" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 mb-4 focus:outline-none focus:border-sky-400" placeholder="Заголовок">
+            <textarea id="edit-description" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-4 mb-4 h-28 focus:outline-none focus:border-sky-400" placeholder="Описание"></textarea>
+            
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <div>
+                    <label class="text-xs text-neutral-400 mb-1 block">Приоритет</label>
+                    <select id="edit-priority" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-3">
+                        <option value="low">Низкий</option>
+                        <option value="medium">Средний</option>
+                        <option value="high">Высокий</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-neutral-400 mb-1 block">Срок</label>
+                    <input id="edit-deadline" type="date" class="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-5 py-3">
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeModal()" 
+                        class="flex-1 py-4 border border-zinc-700 rounded-2xl font-medium hover:bg-zinc-800">Отмена</button>
+                <button onclick="saveEdit()" 
+                        class="flex-1 py-4 bg-gradient-to-r from-sky-500 to-blue-600 rounded-2xl font-semibold">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tailwind script
+        function initTailwind() {
+            // уже работает через CDN
+        }
+
+        class Task {
+            constructor(id, title, description, priority = 'medium', deadline = null) {
+                this.id = id;
+                this.title = title;
+                this.description = description;
+                this.completed = false;
+                this.priority = priority;
+                this.deadline = deadline;
+                this.createdAt = Date.now();
+            }
+        }
+
+        class TaskManager {
+            constructor() {
+                this.tasks = this.load();
+            }
+
+            addTask(title, description, priority, deadline) {
+                const task = new Task(Date.now().toString(), title, description, priority, deadline);
+                this.tasks.unshift(task);
+                this.save();
+            }
+
+            toggleComplete(id) {
+                const task = this.tasks.find(t => t.id === id);
+                if (task) task.completed = !task.completed;
+                this.save();
+            }
+
+            updateTask(id, title, description, priority, deadline) {
+                const task = this.tasks.find(t => t.id === id);
+                if (task) {
+                    task.title = title;
+                    task.description = description;
+                    task.priority = priority;
+                    task.deadline = deadline;
+                }
+                this.save();
+            }
+
+            deleteTask(id) {
+                this.tasks = this.tasks.filter(t => t.id !== id);
+                this.save();
+            }
+
+            clearCompleted() {
+                this.tasks = this.tasks.filter(t => !t.completed);
+                this.save();
+            }
+
+            save() {
+                localStorage.setItem('tasks_v2', JSON.stringify(this.tasks));
+            }
+
+            load() {
+                const data = localStorage.getItem('tasks_v2');
+                if (!data) return [];
+                return JSON.parse(data).map(t => Object.assign(new Task(), t));
+            }
+        }
+
+        const manager = new TaskManager();
+        let currentFilter = 'all';
+        let searchTerm = '';
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            const now = new Date();
+            const isOverdue = !manager.tasks.find(t => t.id === dateStr) ? false : date < now && !manager.tasks.find(t => t.id === dateStr).completed;
+            return `<span class="${isOverdue ? 'text-red-400' : 'text-neutral-400'}">
+                ${date.toLocaleDateString('ru-RU')}
+            </span>`;
+        }
+
+        function getPriorityBadge(priority) {
+            const colors = {
+                low: 'priority-low text-black',
+                medium: 'priority-med text-black',
+                high: 'priority-high text-white'
+            };
+            const labels = { low: 'Низкий', medium: 'Средний', high: 'Высокий' };
+            return `<span class="px-3 py-1 text-xs font-medium rounded-full ${colors[priority]}">${labels[priority]}</span>`;
+        }
+
+        function render() {
+            const list = document.getElementById('taskList');
+            list.innerHTML = '';
+
+            let filtered = manager.tasks.filter(task => {
+                const matchesSearch = task.title.toLowerCase().includes(searchTerm) || 
+                                    (task.description && task.description.toLowerCase().includes(searchTerm));
+                if (!matchesSearch) return false;
+
+                if (currentFilter === 'active') return !task.completed;
+                if (currentFilter === 'completed') return task.completed;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-20 text-neutral-500">
+                        <i class="fa-solid fa-folder-open text-6xl mb-4 opacity-30"></i>
+                        <p>Нет задач</p>
+                    </div>`;
+                updateStats();
+                return;
+            }
+
+            filtered.forEach(task => {
+                const overdue = task.deadline && new Date(task.deadline) < new Date() && !task.completed;
+                
+                const li = document.createElement('li');
+                li.className = `task-card bg-zinc-900/80 border border-zinc-700 rounded-3xl p-5 flex gap-4 group`;
+                li.innerHTML = `
+                    <input type="checkbox" ${task.completed ? 'checked' : ''} 
+                           onchange="toggleComplete('${task.id}')" 
+                           class="w-6 h-6 accent-sky-400 mt-1 cursor-pointer">
+
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="flex-1">
+                                <p class="${task.completed ? 'line-through text-neutral-400' : 'font-medium'} text-lg leading-tight">
+                                    ${task.title}
+                                </p>
+                                ${task.description ? `<p class="text-neutral-400 text-sm mt-1 line-clamp-2">${task.description}</p>` : ''}
+                            </div>
+                            ${getPriorityBadge(task.priority)}
+                        </div>
+
+                        ${task.deadline ? `
+                        <div class="mt-3 text-xs flex items-center gap-2">
+                            <i class="fa-solid fa-calendar text-sky-400"></i>
+                            ${formatDate(task.deadline)}
+                            ${overdue ? `<span class="text-red-400 text-[10px] font-medium">• ПРОСРОЧЕНО</span>` : ''}
+                        </div>` : ''}
+
+                        <div class="text-[10px] text-neutral-500 mt-3">
+                            Создано: ${new Date(task.createdAt).toLocaleDateString('ru-RU')}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onclick="openEditModal('${task.id}')" 
+                                class="w-9 h-9 flex items-center justify-center hover:bg-sky-500/10 rounded-2xl text-sky-400">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button onclick="deleteTask('${task.id}')" 
+                                class="w-9 h-9 flex items-center justify-center hover:bg-red-500/10 rounded-2xl text-red-400">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+                list.appendChild(li);
+            });
+
+            updateStats();
+        }
+
+        function toggleComplete(id) {
+            manager.toggleComplete(id);
+            render();
+        }
+
+        function deleteTask(id) {
+            if (confirm('Удалить задачу?')) {
+                manager.deleteTask(id);
+                render();
+            }
+        }
+
+        function updateStats() {
+            const total = manager.tasks.length;
+            const completed = manager.tasks.filter(t => t.completed).length;
+            document.getElementById('stats').innerHTML = `
+                <span class="text-emerald-400">${completed}</span> / ${total} завершено
+            `;
+            document.getElementById('count').textContent = `${total} задач`;
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active', 'bg-zinc-800', 'text-white'));
+            
+            if (filter === 'all') document.getElementById('filter-all').classList.add('active', 'bg-zinc-800', 'text-white');
+            if (filter === 'active') document.getElementById('filter-active').classList.add('active', 'bg-zinc-800', 'text-white');
+            if (filter === 'completed') document.getElementById('filter-completed').classList.add('active', 'bg-zinc-800', 'text-white');
+            
+            render();
+        }
+
+        function clearCompleted() {
+            if (confirm('Удалить все завершённые задачи?')) {
+                manager.clearCompleted();
+                render();
+            }
+        }
+
+        // Modal
+        let editingId = null;
+
+        function openEditModal(id) {
+            const task = manager.tasks.find(t => t.id === id);
+            if (!task) return;
+
+            editingId = id;
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-title').value = task.title;
+            document.getElementById('edit-description').value = task.description || '';
+            document.getElementById('edit-priority').value = task.priority;
+            document.getElementById('edit-deadline').value = task.deadline || '';
+
+            document.getElementById('editModal').classList.remove('hidden');
+            document.getElementById('editModal').classList.add('flex');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('editModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function saveEdit() {
+            if (!editingId) return;
+            const title = document.getElementById('edit-title').value.trim();
+            if (!title) return alert('Заголовок обязателен');
+
+            manager.updateTask(
+                editingId,
+                title,
+                document.getElementById('edit-description').value.trim(),
+                document.getElementById('edit-priority').value,
+                document.getElementById('edit-deadline').value || null
+            );
+
+            closeModal();
+            render();
+        }
+
+        // Form submit
+        document.getElementById('taskForm').addEventListener('submit', e => {
+            e.preventDefault();
+            
+            const title = document.getElementById('title').value.trim();
+            const description = document.getElementById('description').value.trim();
+            const priority = document.getElementById('priority').value;
+            const deadline = document.getElementById('deadline').value || null;
+
+            if (!title) return;
+
+            manager.addTask(title, description, priority, deadline);
+            
+            e.target.reset();
+            render();
+        });
+
+        // Search
+        document.getElementById('search').addEventListener('input', e => {
+            searchTerm = e.target.value.toLowerCase().trim();
+            render();
+        });
+
+        // Keyboard support
+        document.addEventListener('keydown', e => {
+            if (e.key === "Escape") {
+                const modal = document.getElementById('editModal');
+                if (!modal.classList.contains('hidden')) closeModal();
+            }
+        });
+
+        // Init
+        render();
+        setFilter('all');
+    </script>
+</body>
+</html>
